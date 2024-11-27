@@ -9,6 +9,8 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
+val secretFolder = "$projectDir/build/generatedSecret"
+
 kotlin {
     androidTarget {
         @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -26,6 +28,10 @@ kotlin {
             baseName = "ComposeApp"
             isStatic = true
         }
+    }
+
+    sourceSets.commonMain.configure {
+        kotlin.srcDirs(secretFolder)
     }
     
     sourceSets {
@@ -50,6 +56,8 @@ kotlin {
 android {
     namespace = "com.arrazyfathan.mapscmp"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
+
+    sourceSets["main"].resources.srcDirs(secretFolder)
 
     defaultConfig {
         applicationId = "com.arrazyfathan.mapscmp"
@@ -76,5 +84,60 @@ android {
 
 dependencies {
     debugImplementation(compose.uiTooling)
+}
+
+fun generateSecret(file: String) {
+    val propContent = file("$rootDir/$file").readText()
+    val propData = parseProp(propContent)
+
+    var ktContent = "package com.arrazyfathan.mapscmp\n\nobject SecretConfig {\n"
+    propData.forEach { (key, value) ->
+        ktContent += "	const val $key = $value\n"
+    }
+    ktContent += "}"
+
+    val folder = file(secretFolder)
+
+    if (!folder.exists()) {
+        folder.mkdirs()
+    }
+
+    val fileSecret = file("$secretFolder/SecretConfig.kt")
+
+    if (!fileSecret.exists()) {
+        fileSecret.createNewFile()
+    }
+
+    fileSecret.writeText(ktContent)
+}
+
+fun parseProp(content: String): Map<String, Any> {
+    val propData = mutableMapOf<String, Any>()
+    content.lines().forEach { line ->
+        val key = line.substringBefore("=")
+        val rawValue = line.substringAfter("=")
+
+        val value: Any = when {
+            rawValue == "true" || rawValue == "false" -> rawValue.toBoolean()
+            rawValue.toIntOrNull() != null -> rawValue.toInt()
+            rawValue.toLongOrNull() != null -> rawValue.toLong()
+            rawValue.toDoubleOrNull() != null -> rawValue.toDouble()
+            else -> "\"$rawValue\""
+        }
+
+        propData[key] = value
+    }
+
+    return propData
+}
+
+tasks.register("generateSecret") {
+    doLast {
+        generateSecret("secret.properties")
+    }
+}
+
+afterEvaluate {
+    tasks.getByName("generateComposeResClass").dependsOn("generateSecret")
 }
 
